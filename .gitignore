@@ -1,0 +1,33 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Virtual Environment (uv / venv)
+.venv/
+venv/
+ENV/
+
+# Model weights & Pretrained checkpoints
+*.pt
+*.pth
+*.onnx
+*.bin
+*.safetensors
+
+# Dataset & Processed artifacts
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/aruco_marker.png
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
