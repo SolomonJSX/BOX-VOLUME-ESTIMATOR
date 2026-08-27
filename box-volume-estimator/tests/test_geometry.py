@@ -43,13 +43,17 @@ class TestBox3DReconstructor:
     def test_synthetic_cube_volume_estimation(
         self, reconstructor: Box3DReconstructor
     ):
-        """Тест расчета объема синтетического куба с известными габаритами."""
+        """Тест расчета объема синтетической 3D коробки, стоящей на столе."""
         h, w = 480, 640
+        # Стол на расстоянии 1.0м
         depth_map = np.full((h, w), 1.0, dtype=np.float32)
-        mask = np.zeros((h, w), dtype=np.uint8)
-        mask[140:340, 220:420] = 255  # Центральная область
 
-        # Синтетические данные маркера (размер 5 см)
+        # Коробка выступает вперед на 0.8м (высота коробки ~ 20 см)
+        mask = np.zeros((h, w), dtype=np.uint8)
+        mask[140:340, 220:420] = 255
+        depth_map[140:340, 220:420] = 0.8
+
+        # Синтетический маркер на плоскости стола
         marker_data = {
             "pixel_side": 50.0,
             "center": (100, 100),
@@ -66,4 +70,5 @@ class TestBox3DReconstructor:
         assert dimensions.volume_cm3 > 0.0
         assert dimensions.volume_liters > 0.0
         assert dimensions.width_cm > 0.0
+        assert dimensions.height_cm > 0.0
         assert dimensions.length_cm > 0.0
