@@ -16,11 +16,15 @@ class Settings(BaseSettings):
 
     # Классы для Open-Vocabulary поиска
     BOX_TARGET_CLASSES: list[str] = [
-        "gift box",
-        "cardboard box",
-        "package",
         "box",
+        "cardboard box",
+        "gift box",
+        "package",
         "carton",
+        "parcel",
+        "present",
+        "container",
+        "crate",
     ]
 
 

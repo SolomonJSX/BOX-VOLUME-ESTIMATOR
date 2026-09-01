@@ -53,14 +53,12 @@ class TestPreciseBoxDetectorUnit:
         synthetic_raw_mask = np.zeros((640, 640), dtype=np.uint8)
         synthetic_raw_mask[160:480, 160:480] = 1
 
-        mock_mask_data = MagicMock()
-        mock_mask_data.masks.data = torch.from_numpy(
+        mock_seg_result = MagicMock()
+        mock_seg_result.masks.data = torch.from_numpy(
             synthetic_raw_mask
         ).unsqueeze(0)
-
-        mock_prompt_process = MagicMock()
-        mock_prompt_process.prompt.return_value = [mock_mask_data]
-        mock_fastsam.return_value = [mock_prompt_process]
+        mock_seg_result.boxes.xyxy = torch.tensor([[160.0, 160.0, 480.0, 480.0]])
+        mock_fastsam.return_value = [mock_seg_result]
 
         # Инициализация и вызов
         detector = PreciseBoxDetector(device="cpu")
@@ -90,6 +88,10 @@ class TestPreciseBoxDetectorUnit:
         mock_detection_result = MagicMock()
         mock_detection_result.boxes = mock_boxes
         mock_yolo.return_value = [mock_detection_result]
+
+        mock_fastsam = MagicMock()
+        mock_fastsam_cls.return_value = mock_fastsam
+        mock_fastsam.return_value = []
 
         detector = PreciseBoxDetector(device="cpu")
         mask = detector.extract_box_mask(empty_image, conf=0.25)

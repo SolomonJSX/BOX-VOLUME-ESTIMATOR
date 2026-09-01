@@ -31,6 +31,7 @@ class Box3DReconstructor:
         depth_map: np.ndarray,
         mask: np.ndarray,
         scale_factor: float = 1.0,
+        image_rgb: np.ndarray | None = None,
     ) -> o3d.geometry.PointCloud:
         h, w = depth_map.shape[:2]
         fx, fy, cx, cy = self._get_intrinsics(h, w)
@@ -52,6 +53,9 @@ class Box3DReconstructor:
 
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points)
+        if image_rgb is not None:
+            colors = image_rgb[v_indices, u_indices] / 255.0
+            pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float64))
         return pcd
 
     def _fit_table_plane(
@@ -163,7 +167,10 @@ class Box3DReconstructor:
         final_pcd.points = o3d.utility.Vector3dVector(completed_pts)
 
         # 4. Построение минимального OBB
-        obb = final_pcd.get_oriented_bounding_box()
+        try:
+            obb = final_pcd.get_oriented_bounding_box(robust=True)
+        except Exception:
+            obb = final_pcd.get_oriented_bounding_box()
 
         # Размеры в см (сортировка: длина >= ширина >= высота)
         extents_cm = np.sort(obb.extent * 100.0)[::-1]
@@ -190,3 +197,119 @@ class Box3DReconstructor:
         )
 
         return dimensions, obb
+
+    def create_cylinder_edge(
+        self,
+        p1: np.ndarray,
+        p2: np.ndarray,
+        radius: float = 0.003,
+        color: list[float] = [1.0, 0.15, 0.15],
+    ) -> o3d.geometry.TriangleMesh:
+        """Создает полигональный цилиндр между двумя 3D-точками."""
+        v = p2 - p1
+        length = float(np.linalg.norm(v))
+        if length < 1e-6:
+            return o3d.geometry.TriangleMesh()
+
+        cyl = o3d.geometry.TriangleMesh.create_cylinder(
+            radius=radius, height=length, resolution=12
+        )
+        cyl.paint_uniform_color(color)
+
+        z_axis = np.array([0.0, 0.0, 1.0])
+        v_norm = v / length
+        axis = np.cross(z_axis, v_norm)
+        axis_len = float(np.linalg.norm(axis))
+
+        if axis_len > 1e-6:
+            axis = axis / axis_len
+            angle = float(np.arccos(np.clip(np.dot(z_axis, v_norm), -1.0, 1.0)))
+            R = o3d.geometry.get_rotation_matrix_from_axis_angle(axis * angle)
+            cyl.rotate(R, center=[0.0, 0.0, 0.0])
+        elif np.dot(z_axis, v_norm) < 0:
+            R = o3d.geometry.get_rotation_matrix_from_axis_angle(
+                np.array([1.0, 0.0, 0.0]) * np.pi
+            )
+            cyl.rotate(R, center=[0.0, 0.0, 0.0])
+
+        cyl.translate((p1 + p2) / 2.0)
+        return cyl
+
+    def create_obb_edge_mesh(
+        self,
+        obb: o3d.geometry.OrientedBoundingBox,
+        radius: float | None = None,
+        color: list[float] = [0.95, 0.15, 0.15],
+        center_at_origin: bool = True,
+    ) -> o3d.geometry.TriangleMesh:
+        """Создает полигональную 3D-сетку из 12 ребер OBB в виде цилиндров."""
+        if radius is None:
+            min_dim = float(np.min(obb.extent)) if len(obb.extent) > 0 else 0.1
+            radius = max(0.002, min_dim * 0.015)
+
+        line_set = o3d.geometry.LineSet.create_from_oriented_bounding_box(obb)
+        pts = np.asarray(line_set.points).copy()
+        if center_at_origin:
+            pts -= obb.center
+
+        lines = np.asarray(line_set.lines)
+
+        edge_mesh = o3d.geometry.TriangleMesh()
+        for p_idx1, p_idx2 in lines:
+            cyl = self.create_cylinder_edge(
+                pts[p_idx1], pts[p_idx2], radius=radius, color=color
+            )
+            edge_mesh += cyl
+
+        return edge_mesh
+
+    def create_box_mesh(
+        self,
+        obb: o3d.geometry.OrientedBoundingBox,
+        color: list[float] = [0.28, 0.65, 0.90],
+        center_at_origin: bool = True,
+    ) -> o3d.geometry.TriangleMesh:
+        """Создает полигональную 3D-сетку граней коробки по OBB."""
+        box_mesh = o3d.geometry.TriangleMesh.create_box(
+            width=float(obb.extent[0]),
+            height=float(obb.extent[1]),
+            depth=float(obb.extent[2]),
+        )
+        box_mesh.translate(-obb.extent / 2.0)
+        box_mesh.rotate(obb.R, center=[0.0, 0.0, 0.0])
+
+        if not center_at_origin:
+            box_mesh.translate(obb.center)
+
+        box_mesh.paint_uniform_color(color)
+        box_mesh.compute_vertex_normals()
+        return box_mesh
+
+    def create_reconstruction_mesh(
+        self,
+        pcd: o3d.geometry.PointCloud,
+        obb: o3d.geometry.OrientedBoundingBox,
+        edge_radius: float | None = None,
+        box_color: list[float] = [0.28, 0.65, 0.90],
+        edge_color: list[float] = [0.95, 0.15, 0.15],
+        center_at_origin: bool = True,
+        convert_to_y_up: bool = True,
+    ) -> o3d.geometry.TriangleMesh:
+        """Создает центрированную композитную 3D-сетку коробки и ребер OBB для рендеринга."""
+        box_mesh = self.create_box_mesh(
+            obb, color=box_color, center_at_origin=center_at_origin
+        )
+        edge_mesh = self.create_obb_edge_mesh(
+            obb, radius=edge_radius, color=edge_color, center_at_origin=center_at_origin
+        )
+
+        full_mesh = box_mesh + edge_mesh
+
+        # Преобразование системы координат камеры OpenCV (Y-down, Z-forward)
+        # в стандартную систему Three.js / OpenGL (Y-up, Z-out)
+        if convert_to_y_up:
+            R_yup = np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])
+            full_mesh.rotate(R_yup, center=[0.0, 0.0, 0.0])
+
+        full_mesh.compute_vertex_normals()
+        return full_mesh

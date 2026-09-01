@@ -72,3 +72,25 @@ class TestBox3DReconstructor:
         assert dimensions.width_cm > 0.0
         assert dimensions.height_cm > 0.0
         assert dimensions.length_cm > 0.0
+
+    def test_reconstruction_mesh_and_obb_edges(
+        self, reconstructor: Box3DReconstructor
+    ):
+        obb = o3d.geometry.OrientedBoundingBox(
+            center=[0.0, 0.0, 1.0], R=np.eye(3), extent=[0.2, 0.3, 0.4]
+        )
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.random.rand(50, 3))
+
+        box_mesh = reconstructor.create_box_mesh(obb)
+        assert isinstance(box_mesh, o3d.geometry.TriangleMesh)
+        assert len(box_mesh.vertices) == 8
+        assert len(box_mesh.triangles) == 12
+
+        edge_mesh = reconstructor.create_obb_edge_mesh(obb)
+        assert isinstance(edge_mesh, o3d.geometry.TriangleMesh)
+        assert len(edge_mesh.triangles) > 0
+
+        full_mesh = reconstructor.create_reconstruction_mesh(pcd, obb)
+        assert isinstance(full_mesh, o3d.geometry.TriangleMesh)
+        assert len(full_mesh.triangles) == len(box_mesh.triangles) + len(edge_mesh.triangles)
